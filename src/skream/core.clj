@@ -114,17 +114,14 @@
 (defn add-num
   ([sk] sk)
   ([sk x]
-    (let [added-sk (apply merge (pmap (fn [add-fn] (add-fn sk x)) (vals (:add-fn-map (meta sk)))))
+    (let [added-sk (apply merge-with-meta (pmap (fn [add-fn] (add-fn sk x))
+                                      (vals (:add-fn-map (meta sk)))))
           alias-map (:alias-map (meta sk))
-          aliased-sk (loop [current-alias-keys (keys alias-map)
-                            current-alias-map-results {}]
-                       (if (empty? current-alias-keys) current-alias-map-results
-                         (let [alias-target (first current-alias-keys)
-                               alias-src (get alias-map alias-target)
-                               alias-src-val (get added-sk alias-src)]
-                           (recur
-                             (rest current-alias-keys)
-                             (merge current-alias-map-results { alias-target (get added-sk alias-src) })))))]
+          aliased-sk (apply merge (pmap (fn [alias-target]
+                                          (let [alias-src (get alias-map alias-target)
+                                                alias-src-val (get added-sk alias-src)]
+                                            { alias-target alias-src-val }))
+                                        (keys alias-map)))]
       (merge (merge-with-meta sk added-sk) aliased-sk)))
   ([sk x & xs]
     (loop [current-xs xs
