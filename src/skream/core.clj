@@ -1,4 +1,4 @@
- (ns skream.core
+(ns skream.core
   (:use clojure.test)
   (:use clojure.math.numeric-tower)
   (:use (ring.adapter jetty)
