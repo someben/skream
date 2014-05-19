@@ -594,5 +594,28 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Execution Path
 ;;
+(defn run-performance-profile [n]
+  (let [profile (fn [prof-fn]
+                  (let [t1 (get-time)
+                        prof-result (dorun (prof-fn))
+                        t2 (get-time)
+                        elapsed-t (- t2 t1)]
+                    elapsed-t))
+        elapsed-ms (profile
+                     (fn []
+                       (let [sk (track-element-counts-ish (track-normal-histogram (track-default (create-skream)) 100) 128 32)]
+                         (loop [i n current-sk sk]
+                           (if (zero? i) current-sk
+                             (recur (dec i)
+                                    (add-num current-sk (inc (rand-int 20)))))))))
+        per-sec (float (/ n (/ elapsed-ms 1000)))]
+    per-sec))
+
 (defn -main [& args]
-  (println "Skream main"))
+  (println "Skream Performance Profile")
+  (let [n (if (empty? args) 100 (read-string (first args)))]
+    (println "adding" n "random points")
+    (let [per-sec (run-performance-profile n)]
+      (println "added" per-sec "per second")
+      (System/exit 0))))
+
