@@ -485,13 +485,13 @@
                                              d (- (nth nps i) (nth current-ns i))]
                                          (if (or (and (>= d +1) (> (- (nth current-ns (inc i)) (nth current-ns i)) +1))
                                                  (and (<= d -1) (< (- (nth current-ns (dec i)) (nth current-ns i)) -1)))
-                                           (let [new-para-q (parabolic-fn current-ns current-qs i (sign-fn d))
+                                           (let [new-para-q (float (parabolic-fn current-ns current-qs i (sign-fn d)))
                                                  new-n (+ (nth current-ns i) (sign-fn d))]
                                              (if (and (< (nth current-qs (dec i)) new-para-q)
                                                       (< new-para-q (nth current-qs (inc i))))
                                                (recur (inc i)
                                                       { :qs (assoc current-qs i new-para-q) :ns (assoc current-ns i new-n) })
-                                               (let [new-lin-q (linear-fn ns qs i (sign-fn d))]
+                                               (let [new-lin-q (float (linear-fn ns qs i (sign-fn d)))]
                                                  (recur (inc i)
                                                         { :qs (assoc current-qs i new-lin-q) :ns (assoc current-ns i new-n) }))))
                                            (recur (inc i)
@@ -594,22 +594,23 @@
 ;; Execution Path
 ;;
 (defn run-performance-profile [sk num-fn n]
-  (let [msg-per-n 1000
+  (let [msg-per-n (if (nil? n) 100 (int (/ n 100)))
         t1 (get-time)
         elapsed-msg-fn
-        (fn [i] (let [t2 (get-time)
-                      elapsed-t (- t2 t1)]
-                  (if (not (zero? elapsed-t))
-                    (let [per-sec (float (/ i elapsed-t))]
-                      (println "Added" i "numbers at" per-sec "per-second")))))
+        (fn [current-sk i] (let [t2 (get-time)
+                                 elapsed-t (- t2 t1)]
+                             (if (not (zero? elapsed-t))
+                               (let [per-sec (float (/ i elapsed-t))
+                                     sk-len (count (with-out-str (pr current-sk)))]
+                                 (println "Added" i "numbers at" per-sec "/sec, structure is roughly" sk-len "bytes")))))
         prof-sk
         (loop [i 1 current-sk sk]
-          (if (> i n) current-sk
+          (if (and n (> i n)) current-sk
             (do
-              (if (zero? (mod i msg-per-n)) (elapsed-msg-fn i))
+              (if (zero? (mod i msg-per-n)) (elapsed-msg-fn current-sk i))
               (recur (inc i)
                      (add-num current-sk (num-fn))))))]
-    (elapsed-msg-fn n)
+    (elapsed-msg-fn prof-sk n)
     prof-sk))
 
 (defn run-default-performance-profile [n]
@@ -618,7 +619,9 @@
 
 (defn -main [& args]
   (println "Skream Performance Profile")
-  (let [n (if (empty? args) 100 (read-string (first args)))]
-    (println "Profiling w/" n "random numbers")
+  (let [n (if (empty? args) nil
+            (let [n-arg (read-string (first args))]
+              (println "Profiling w/" n-arg "random numbers")
+              n-arg))]
     (run-default-performance-profile n)
     (System/exit 0)))
