@@ -10,3 +10,4 @@
   :javac-options ["-target" "1.6" "-source" "1.6" "-Xlint:-options"]
   :aot [skream.core]
   :main skream.core)
+

@@ -613,28 +613,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Execution Path
 ;;
-(load "core-tests")
-(load "core-srv-rest")
+(defn -main [& args]
+  (println "Skream main"))
 
-(defn test-mutual-information []
-  (let [sk1 (track-normal-histogram (track-default (create-skream)) 25)
-        sk2 (track-normal-histogram (track-default (create-skream)) 25)
-        hist-stat-prefix1 :normal-range-count hist-stat-prefix2 :normal-range-count
-        mi-map {
-                :sk1 sk1 :sk2 sk2
-                :hist-stat-prefix1 hist-stat-prefix1 :hist-stat-prefix2 hist-stat-prefix2
-                :mi-sk (track-default (create-skream))
-                }
-        new-mi-map (loop [i 5000
-                          current-mi-map mi-map]
-                     (if (zero? i) current-mi-map
-                       (recur (dec i)
-                              (let [x1 (get-rand-normal)
-                                    x2 (* x1 2);x2 (get-rand-normal)
-                                    next-mi-map (add-mutual-information-nums current-mi-map x1 x2)
-                                    prev-mi-sk (:mi-sk current-mi-map)
-                                    next-mi (get-mutual-information next-mi-map)
-                                    next-mi-sk (add-num prev-mi-sk next-mi)]
-                                (assoc next-mi-map :mi-sk next-mi-sk)))))]
-    (println (:mi-sk new-mi-map))
-    (:mean (:mi-sk new-mi-map))))
