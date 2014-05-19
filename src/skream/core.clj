@@ -51,14 +51,8 @@
 ;; Utility Functions (e.g. hashing)
 ;;
 (defn merge-with-meta [& maps]
-  (loop [current-maps maps
-         current-result {}]
-    (if (empty? current-maps)
-      current-result
-      (recur (rest current-maps)
-             (with-meta
-               (merge current-result (first current-maps))
-               (merge (meta current-result) (meta (first current-maps))))))))
+  (let [meta-maps (map meta maps)]
+    (with-meta (apply merge maps) (apply merge meta-maps))))
 
 (defn get-time [] (/ (System/currentTimeMillis) 1000))
 
@@ -115,7 +109,7 @@
   ([sk] sk)
   ([sk x]
     (let [added-sk (apply merge-with-meta (pmap (fn [add-fn] (add-fn sk x))
-                                      (vals (:add-fn-map (meta sk)))))
+                                                (vals (:add-fn-map (meta sk)))))
           alias-map (:alias-map (meta sk))
           aliased-sk (apply merge (pmap (fn [alias-target]
                                           (let [alias-src (get alias-map alias-target)
