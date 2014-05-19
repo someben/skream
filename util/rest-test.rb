@@ -82,7 +82,7 @@ srv_skream_ids = JSON.parse(get_skreams(session_cookie)[:resp])
 to_console("Found #{srv_skream_ids.inspect} Skream IDs for this session.")
 raise "Skream ID mismatch" unless [skream_id1, skream_id2].sort == srv_skream_ids.sort
 
-10.times do
+100.times do
   x = rand * 1_000_000
   add_num(session_cookie, (rand < 0.5) ? skream_id1 : skream_id2, x)
 end

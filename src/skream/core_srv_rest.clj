@@ -1,4 +1,13 @@
-(in-ns 'skream.core)
+(ns skream.core-srv-rest
+  (:use (ring.adapter jetty)
+        (compojure core))
+  (:require [clojure.data.json :refer [json-str]])
+  (:require [ring.middleware.params :refer [wrap-params]])
+  (:require [ring.middleware.session :refer [wrap-session]])
+  (:require [ring.middleware.keyword-params :refer [wrap-keyword-params]])
+  (:require [ring.middleware.json :refer [wrap-json-response]])
+  (:require [skream.core :refer :all])
+  (:gen-class))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Web Service REST API

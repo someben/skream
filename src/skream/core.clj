@@ -1,22 +1,13 @@
 (ns skream.core
-  (:use clojure.test)
   (:use clojure.math.numeric-tower)
-  (:use (ring.adapter jetty)
-        (compojure core))
-  (:require [clojure.data.json :refer [json-str]])
-  (:require [ring.middleware.params :refer [wrap-params]])
-  (:require [ring.middleware.session :refer [wrap-session]])
-  (:require [ring.middleware.keyword-params :refer [wrap-keyword-params]])
-  (:require [ring.middleware.json :refer [wrap-json-response]])
   (:import (java.security MessageDigest))
   (:gen-class))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; TODO
 ;; - refactor the mutual information work into a "skream bundle" structure
-;; - add disk-based persistence to the REST API's sessions
+;; - use a persistent session store in the REST API (write to Redis?)
 ;; - profile large skreams, and check into caching get-new-*math* functions
-;; - parallelize the add-num logic, use every core
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Default Parameters
@@ -27,7 +18,7 @@
 (defn get-default-sketch-width [] 128)  ; number of buckets per hash
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Math Routines
+;; Math Routines 
 ;;
 (defn get-mean [xs]
   (/ (apply + xs) (count xs)))
@@ -123,14 +114,7 @@
 (defn add-num
   ([sk] sk)
   ([sk x]
-    (let [add-fn-map (:add-fn-map (meta sk))
-          added-sk (loop [current-fns (vals add-fn-map)
-                          current-add-fn-results {}]
-                     (if (empty? current-fns) current-add-fn-results
-                       (let [add-fn-result ((first current-fns) sk x)]
-                         (recur
-                           (rest current-fns)
-                           (merge-with-meta current-add-fn-results add-fn-result)))))
+    (let [added-sk (apply merge (pmap (fn [add-fn] (add-fn sk x)) (vals (:add-fn-map (meta sk)))))
           alias-map (:alias-map (meta sk))
           aliased-sk (loop [current-alias-keys (keys alias-map)
                             current-alias-map-results {}]
@@ -615,4 +599,3 @@
 ;;
 (defn -main [& args]
   (println "Skream main"))
-
