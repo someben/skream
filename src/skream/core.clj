@@ -60,7 +60,7 @@
                (merge current-result (first current-maps))
                (merge (meta current-result) (meta (first current-maps))))))))
 
-(defn get-time [] (System/currentTimeMillis))
+(defn get-time [] (/ (System/currentTimeMillis) 1000))
 
 (defn get-uuid [] (.toString (java.util.UUID/randomUUID)))
 
@@ -582,7 +582,6 @@
 
 (defn track-default [sk]
   (-> sk
-    track-median-ish
     track-kurtosis
     track-skew
     track-standard-deviation
@@ -594,28 +593,32 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Execution Path
 ;;
-(defn run-performance-profile [n]
-  (let [profile (fn [prof-fn]
-                  (let [t1 (get-time)
-                        prof-result (dorun (prof-fn))
-                        t2 (get-time)
-                        elapsed-t (- t2 t1)]
-                    elapsed-t))
-        elapsed-ms (profile
-                     (fn []
-                       (let [sk (track-element-counts-ish (track-normal-histogram (track-default (create-skream)) 100) 128 32)]
-                         (loop [i n current-sk sk]
-                           (if (zero? i) current-sk
-                             (recur (dec i)
-                                    (add-num current-sk (inc (rand-int 20)))))))))
-        per-sec (float (/ n (/ elapsed-ms 1000)))]
-    per-sec))
+(defn run-performance-profile [sk num-fn n]
+  (let [msg-per-n 1000
+        t1 (get-time)
+        elapsed-msg-fn
+        (fn [i] (let [t2 (get-time)
+                      elapsed-t (- t2 t1)]
+                  (if (not (zero? elapsed-t))
+                    (let [per-sec (float (/ i elapsed-t))]
+                      (println "Added" i "numbers at" per-sec "per-second")))))
+        prof-sk
+        (loop [i 1 current-sk sk]
+          (if (> i n) current-sk
+            (do
+              (if (zero? (mod i msg-per-n)) (elapsed-msg-fn i))
+              (recur (inc i)
+                     (add-num current-sk (num-fn))))))]
+    (elapsed-msg-fn n)
+    prof-sk))
+
+(defn run-default-performance-profile [n]
+  (let [sk (track-default (create-skream))]
+    (run-performance-profile sk (fn [] (inc (rand-int 20))) n)))
 
 (defn -main [& args]
   (println "Skream Performance Profile")
   (let [n (if (empty? args) 100 (read-string (first args)))]
-    (println "adding" n "random points")
-    (let [per-sec (run-performance-profile n)]
-      (println "added" per-sec "per second")
-      (System/exit 0))))
-
+    (println "Profiling w/" n "random numbers")
+    (run-default-performance-profile n)
+    (System/exit 0)))
