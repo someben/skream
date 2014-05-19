@@ -1,4 +1,7 @@
-skream
-======
+# skream
 
-Sketching &amp; Streaming Library
+A Clojure app to ... well, that part is up to you.
+
+## Usage
+
+FIXME
