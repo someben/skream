@@ -5,6 +5,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; TODO
+;; - test HyperLogLog against a published dataset
 ;; - refactor the mutual information work into a "skream bundle" structure
 ;; - use a persistent session store in the REST API (write to Redis?)
 ;; - profile large skreams, and check into caching get-new-*math* functions
@@ -39,6 +40,9 @@
   (if (= pow 1/2)
     (sqrt x)
     (expt x pow)))
+
+(defn get-binary-str [x]
+  (Long/toBinaryString x))
 
 (defn get-inverse-normal-distribution [p]
   (if (or (<= p 0) (>= p 1)) nil
@@ -409,6 +413,48 @@
         (recur (inc i)
                (track-element-normal-range-count current-sk (nth stdev-steps i) (nth stdev-steps (inc i))))))))
 
+(defn track-distinct-value-count-ish [sk b]  ; http://research.neustar.biz/2012/10/25/sketch-of-the-day-hyperloglog-cornerstone-of-a-big-data-infrastructure/
+  (let [stat [:hll b]
+        dep-sk (track-count sk)
+        m (get-power 2 b)
+        empty-sketch (create-sketch 1 m)
+        alpha (cond
+                (= m 16) 0.673
+                (= m 32) 0.697
+                (= m 64) 0.709
+                :else (/ 0.7213 (+ 1 (/ 1.079 m))))
+        str-count-sorter-fn (fn [a b] (compare (count a) (count b)))
+        binary0-run-count-fn (fn [x]
+                               (let [x-bin-str (get-binary-str x)]
+                                 (count (last (sort str-count-sorter-fn (clojure.string/split x-bin-str #"1"))))))
+        add-fn (fn [prev-sk x]
+                 (let [current-sketch (:sketch (get prev-sk stat))
+                       x-hash (get-32bit-sha1-hash x)
+                       sketch-i (bit-and x-hash (dec m))
+                       binary0-run-count (binary0-run-count-fn (bit-or x-hash (dec m)))
+                       modify-sketch-fn (fn [prev-val] (max prev-val binary0-run-count))
+                       new-sketch (modify-sketch current-sketch 0 sketch-i modify-sketch-fn)
+
+                       new-sketch-row (nth new-sketch 0)
+                       reg-sum (loop [i 0 current-sum 0]
+                                 (if (>= i m) current-sum
+                                   (recur (inc i)
+                                          (+ current-sum (get-power 2 (- (nth new-sketch-row i)))))))
+                       dv-est (* alpha (get-power m 2) (/ 1 reg-sum))
+                       dv (cond
+                            (< dv-est (* 5/2 m))
+                            (let [num-zero (count (filter zero? new-sketch-row))]
+                              (if (zero? num-zero)
+                                dv-est
+                                (* m (get-logarithm-2 (/ m num-zero)))))
+                            (<= dv-est (* 1/30 (get-power 2 32)))
+                            dv-est
+                            :else
+                            (* (- (get-power 2 32)) (get-logarithm-2 (- 1 (/ dv-est (get-power 2 32))))))
+                       dv (round dv)]
+                   { stat { :dv dv :sketch new-sketch } }))]
+    (track-stat dep-sk stat add-fn { :dv 0 :sketch empty-sketch })))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; P2 Quantile Estimation
 ;;
@@ -576,6 +622,7 @@
 
 (defn track-default [sk]
   (-> sk
+    track-median-ish
     track-kurtosis
     track-skew
     track-standard-deviation
@@ -589,6 +636,7 @@
 ;;
 (defn run-performance-profile [sk num-fn n]
   (let [msg-per-n (if (nil? n) 100 (int (/ n 100)))
+        is-msg-fn (fn [i] (zero? (mod i msg-per-n)))
         t1 (get-time)
         elapsed-msg-fn
         (fn [current-sk i] (let [t2 (get-time)
@@ -597,15 +645,15 @@
                                (let [per-sec (float (/ i elapsed-t))
                                      sk-len (count (with-out-str (pr current-sk)))]
                                  (println "Added" i "numbers at" per-sec "/sec, structure is roughly" sk-len "bytes")))))
-        prof-sk
+        new-sk
         (loop [i 1 current-sk sk]
           (if (and n (> i n)) current-sk
             (do
-              (if (zero? (mod i msg-per-n)) (elapsed-msg-fn current-sk i))
+              (if (is-msg-fn i) (elapsed-msg-fn current-sk i))
               (recur (inc i)
                      (add-num current-sk (num-fn))))))]
-    (elapsed-msg-fn prof-sk n)
-    prof-sk))
+    (if (not (is-msg-fn n)) (elapsed-msg-fn new-sk n))
+    new-sk))
 
 (defn run-default-performance-profile [n]
   (let [sk (track-default (create-skream))]
