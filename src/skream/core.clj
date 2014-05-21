@@ -6,6 +6,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; TODO
 ;; - test HyperLogLog against a published dataset
+;; - move the :quantile stat into the :ns, :qs map & add nested map support for aliasing
 ;; - refactor the mutual information work into a "skream bundle" structure
 ;; - use a persistent session store in the REST API (write to Redis?)
 ;; - profile large skreams, and check into caching get-new-*math* functions
@@ -41,8 +42,13 @@
     (sqrt x)
     (expt x pow)))
 
-(defn get-binary-str [x]
-  (Long/toBinaryString x))
+(defn get-binary-str
+  ([x] (get-binary-str x nil))
+  ([x width]
+    (let [bin-str (Long/toBinaryString x)]
+      (if (nil? width) bin-str
+        (let [width-diff (max (- width (count bin-str)) 0)]
+          (str (apply str (repeat width-diff "0")) bin-str))))))
 
 (defn get-inverse-normal-distribution [p]
   (if (or (<= p 0) (>= p 1)) nil
@@ -424,15 +430,18 @@
                 (= m 64) 0.709
                 :else (/ 0.7213 (+ 1 (/ 1.079 m))))
         str-count-sorter-fn (fn [a b] (compare (count a) (count b)))
-        binary0-run-count-fn (fn [x]
-                               (let [x-bin-str (get-binary-str x)]
-                                 (count (last (sort str-count-sorter-fn (clojure.string/split x-bin-str #"1"))))))
         add-fn (fn [prev-sk x]
                  (let [current-sketch (:sketch (get prev-sk stat))
                        x-hash (get-32bit-sha1-hash x)
                        sketch-i (bit-and x-hash (dec m))
-                       binary0-run-count (binary0-run-count-fn (bit-or x-hash (dec m)))
-                       modify-sketch-fn (fn [prev-val] (max prev-val binary0-run-count))
+                       x-hash-bin-str (get-binary-str x-hash 32)
+                       suffix-len (- 32 b)
+                       x-hash-bin-str-suffix (subs x-hash-bin-str 0 suffix-len)
+                       binary0-run-count (loop [i (dec suffix-len)
+                                                current-count 0]
+                                           (if (or (= -1 i) (= \1 (nth x-hash-bin-str-suffix i))) current-count
+                                             (recur (dec i) (inc current-count))))
+                       modify-sketch-fn (fn [prev-val] (max prev-val (inc binary0-run-count)))  ; add one to the number of leading zeros, like the HLL paper
                        new-sketch (modify-sketch current-sketch 0 sketch-i modify-sketch-fn)
 
                        new-sketch-row (nth new-sketch 0)
