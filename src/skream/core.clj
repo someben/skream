@@ -34,6 +34,9 @@
 (defn get-combinations [n k]
   (/ (get-factorial n) (* (get-factorial k) (get-factorial (- n k)))))
 
+(defn get-logarithm-e [x]
+  (java.lang.Math/log x))
+
 (defn get-logarithm-2 [x]
   (/ (java.lang.Math/log x) (java.lang.Math/log 2)))
 
@@ -96,6 +99,23 @@
       (bit-shift-left (nth hash-bytes 1) 8)
       (bit-shift-left (nth hash-bytes 2) 16)
       (bit-shift-left (nth hash-bytes 3) 24))))
+
+(defn get-jenkins-hash [x]
+  (let [str-x (str x)
+        count-str-x (count str-x)
+        to-32bit-fn (fn [x] (bit-and 0xFFFFFFFF x))
+        loop-hash1 (loop [i 0 hash 0]
+                     (if (>= i count-str-x) hash
+                       (recur (inc i)
+                              (let [ch-code (int (nth str-x i))
+                                    next-hash1 (to-32bit-fn (+ hash ch-code))
+                                    next-hash2 (to-32bit-fn (+ next-hash1 (bit-shift-left next-hash1 10)))
+                                    next-hash3 (to-32bit-fn (bit-xor next-hash2 (unsigned-bit-shift-right next-hash2 6)))]
+                                next-hash3))))
+        loop-hash2 (to-32bit-fn (+ loop-hash1 (bit-shift-left loop-hash1 3)))
+        loop-hash3 (to-32bit-fn (bit-xor loop-hash2 (unsigned-bit-shift-right loop-hash2 11)))
+        loop-hash4 (to-32bit-fn (+ loop-hash3 (bit-shift-left loop-hash3 15)))]
+    loop-hash4))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Foundations
@@ -455,11 +475,11 @@
                             (let [num-zero (count (filter zero? new-sketch-row))]
                               (if (zero? num-zero)
                                 dv-est
-                                (* m (get-logarithm-2 (/ m num-zero)))))
+                                (* m (get-logarithm-e (/ m num-zero)))))
                             (<= dv-est (* 1/30 (get-power 2 32)))
                             dv-est
                             :else
-                            (* (- (get-power 2 32)) (get-logarithm-2 (- 1 (/ dv-est (get-power 2 32))))))
+                            (* (- (get-power 2 32)) (get-logarithm-e (- 1 (/ dv-est (get-power 2 32))))))
                        dv (round dv)]
                    { stat { :dv dv :sketch new-sketch } }))]
     (track-stat dep-sk stat add-fn { :dv 0 :sketch empty-sketch })))
