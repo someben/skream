@@ -4,14 +4,6 @@
   (:gen-class))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; TODO
-;; - test HyperLogLog against a published dataset
-;; - move the :quantile stat into the :ns, :qs map & add nested map support for aliasing
-;; - refactor the mutual information work into a "skream bundle" structure
-;; - use a persistent session store in the REST API (write to Redis?)
-;; - profile large skreams, and check into caching get-new-*math* functions
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Default Parameters
 ;;
 (defn get-default-exponential-moving-average-alpha [] 0.125)
