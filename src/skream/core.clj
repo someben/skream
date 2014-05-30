@@ -344,7 +344,7 @@
       (track-stat dep-sk stat add-fn))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Online Probability Distribution Estimates
+;; Sketch Utility Functions
 ;;
 (defn create-sketch [num-rows num-cols]
   (get-vector-of-n (get-vector-of-n 0 num-cols) num-rows))
@@ -357,6 +357,40 @@
         new-sketch (assoc sketch row-i new-sketch-row)]
     new-sketch))
   
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Membership Estimate
+;;
+(defn track-member-ish? [sk b k]
+  (let [stat [:bloom b k]
+        b-mask (dec (get-power 2 b))
+        empty-sketch (create-sketch 1 k)
+        add-fn (fn [prev-sk x]
+                 (let [prev-sketch (get prev-sk stat)
+                       new-sketch (loop [i 0 current-sketch prev-sketch]
+                                    (if (>= i k) current-sketch
+                                      (let [x-hash (get-32bit-sha1-hash x i)
+                                            col-i (bit-and x-hash b-mask)]
+                                        (recur (inc i)
+                                               (modify-sketch current-sketch 0 i
+                                                              (fn [val] (bit-set val col-i)))))))]
+                   { stat new-sketch }))]
+    (track-stat sk stat add-fn empty-sketch)))
+
+(defn member-ish? [sk b k x]
+  (let [stat [:bloom b k]
+        b-mask (dec (get-power 2 b))
+        sketch-row (nth (get sk stat) 0)]
+    (loop [i 0]
+      (if (>= i k) true
+        (let [x-hash (get-32bit-sha1-hash x i)
+              col-i (bit-and x-hash b-mask)]
+          (if (not (bit-test (nth sketch-row i) col-i))
+            false
+            (recur (inc i))))))))
+  
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Online Probability Distribution Estimates
+;;
 (defn track-element-counts-ish
   ([sk] (track-element-counts-ish sk (get-default-sketch-depth) (get-default-sketch-width)))
   ([sk d w]
