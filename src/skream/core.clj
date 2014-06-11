@@ -63,6 +63,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Utility Functions (e.g. hashing)
 ;;
+(defn meta-get-in
+  ([m ks] (meta-get-in m ks nil))
+  ([m ks not-found] (get-in (meta m) ks not-found)))
+  
 (defn merge-with-meta [& maps]
   (let [meta-maps (map meta maps)]
     (with-meta (apply merge maps) (apply merge meta-maps))))
@@ -135,17 +139,18 @@
         meta-alias-map (assoc prev-meta-alias-map target-stat src-stat)]
     (vary-meta sk assoc :alias-map meta-alias-map)))
 
+(defn add-aliases [sk alias-map]
+  (apply merge (pmap (fn [alias-target]
+                       (let [alias-src (get alias-map alias-target)
+                             alias-src-val (get sk alias-src)]
+                         { alias-target alias-src-val }))
+                     (keys alias-map))))
+
 (defn add-num
   ([sk] sk)
   ([sk x]
-    (let [added-sk (apply merge-with-meta (pmap (fn [add-fn] (add-fn sk x))
-                                                (vals (:add-fn-map (meta sk)))))
-          alias-map (:alias-map (meta sk))
-          aliased-sk (apply merge (pmap (fn [alias-target]
-                                          (let [alias-src (get alias-map alias-target)
-                                                alias-src-val (get added-sk alias-src)]
-                                            { alias-target alias-src-val }))
-                                        (keys alias-map)))]
+    (let [added-sk (apply merge-with-meta (pmap (fn [add-fn] (add-fn sk x)) (vals (:add-fn-map (meta sk)))))
+          aliased-sk (add-aliases added-sk (:alias-map (meta sk)))]
       (merge (merge-with-meta sk added-sk) aliased-sk)))
   ([sk x & xs]
     (loop [current-xs xs
@@ -617,6 +622,51 @@
 
 (defn track-median-ish [sk]
   (alias-stat (track-quantile-ish sk 0.5) :median [:quantile 0.5]))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Multi Support (portfolio of Skreams)
+;;
+(defn create-multi-skream [] {})
+
+(defn assoc-multi-skream
+  ([msk sk-key sk]
+    (let [prev-meta-msk (meta msk)
+          sub-sk-map (or (:sub-sk-map prev-meta-msk) {})
+          new-meta-msk (assoc prev-meta-msk :sub-sk-map (assoc sub-sk-map sk-key sk))]
+      (with-meta msk new-meta-msk)))
+  ([msk sk-key sk & sk-key-sks]
+    (loop [current-sk-key-sks sk-key-sks
+           current-msk (assoc-multi-skream msk sk-key sk)]
+      (if (empty? current-sk-key-sks) current-msk
+        (let [current-sk-key (first current-sk-key-sks)
+              current-sk (first (rest current-sk-key-sks))]
+          (recur (rest (rest current-sk-key-sks))
+                 (assoc-multi-skream current-msk current-sk-key current-sk)))))))
+
+(defn add-multi-num
+  ([msk sk-key] msk)
+  ([msk sk-key x]
+    (let [meta-msk (meta msk)
+          prev-sub-sk-map (:sub-sk-map meta-msk)]
+      (if (or (nil? prev-sub-sk-map) (not (contains? prev-sub-sk-map sk-key))) msk
+        (let [prev-sk (get prev-sub-sk-map sk-key)
+              new-sub-sk-map (assoc prev-sub-sk-map sk-key (add-num prev-sk x))
+              middle-msk (vary-meta msk assoc :sub-sk-map new-sub-sk-map)
+              added-msk (apply merge-with-meta (pmap (fn [add-fn] (add-fn middle-msk x))
+                                                     (vals (:add-fn-map meta-msk))))
+              aliased-msk (add-aliases added-msk (:alias-map meta-msk))]
+          (merge (merge-with-meta middle-msk added-msk) aliased-msk)))))
+  ([msk sk-key x & xs]
+    (loop [current-xs xs
+           current-msk (add-multi-num msk sk-key x)]
+      (if (empty? current-xs) current-msk
+        (recur (rest current-xs)
+               (add-multi-num current-msk sk-key (first current-xs)))))))
+
+(defn track-multi-count [msk]
+  (let [add-fn (fn [prev-msk x]
+                 { :mcount (inc (:mcount prev-msk)) })]
+    (track-stat msk :mcount add-fn 0)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Online Mutual Information
