@@ -68,8 +68,9 @@
   ([m ks not-found] (get-in (meta m) ks not-found)))
   
 (defn merge-with-meta [& maps]
-  (let [meta-maps (map meta maps)]
-    (with-meta (apply merge maps) (apply merge meta-maps))))
+  (if (nil? maps) nil
+    (let [meta-maps (map meta maps)]
+      (with-meta (apply merge maps) (apply merge meta-maps)))))
 
 (defn get-time [] (/ (System/currentTimeMillis) 1000))
 
@@ -127,12 +128,13 @@
 (defn create-skream [] {})
 
 (defn track-stat
-  ([sk stat add-fn] (track-stat sk stat add-fn nil))
-  ([sk stat add-fn init-val]
+  ([sk stat add-fn] (track-stat sk stat add-fn nil :add-fn-map))
+  ([sk stat add-fn init-val] (track-stat sk stat add-fn init-val :add-fn-map))
+  ([sk stat add-fn init-val add-fn-map-key]
     (let [new-sk (assoc sk stat init-val)
-          prev-meta-add-fn-map (:add-fn-map (meta sk))
+          prev-meta-add-fn-map (add-fn-map-key (meta sk))
           meta-add-fn-map (assoc prev-meta-add-fn-map stat add-fn)]
-      (vary-meta new-sk assoc :add-fn-map meta-add-fn-map))))
+      (vary-meta new-sk assoc add-fn-map-key meta-add-fn-map))))
 
 (defn alias-stat [sk target-stat src-stat]
   (let [prev-meta-alias-map (:alias-map (meta sk))
@@ -149,7 +151,8 @@
 (defn add-num
   ([sk] sk)
   ([sk x]
-    (let [added-sk (apply merge-with-meta (pmap (fn [add-fn] (add-fn sk x)) (vals (:add-fn-map (meta sk)))))
+    (let [added-sk (apply merge-with-meta (pmap (fn [add-fn] (add-fn sk x))
+                                                (vals (:add-fn-map (meta sk)))))
           aliased-sk (add-aliases added-sk (:alias-map (meta sk)))]
       (merge (merge-with-meta sk added-sk) aliased-sk)))
   ([sk x & xs]
@@ -178,6 +181,11 @@
   (let [add-fn (fn [prev-sk x]
                  { :count (inc (:count prev-sk)) })]
     (track-stat sk :count add-fn 0)))
+
+(defn track-last [sk]
+  (let [add-fn (fn [prev-sk x]
+                 { :last x })]
+    (track-stat sk :last add-fn nil)))
 
 (defn track-min [sk]
   (let [add-fn (fn [prev-sk x]
@@ -652,7 +660,7 @@
         (let [prev-sk (get prev-sub-sk-map sk-key)
               new-sub-sk-map (assoc prev-sub-sk-map sk-key (add-num prev-sk x))
               middle-msk (vary-meta msk assoc :sub-sk-map new-sub-sk-map)
-              added-msk (apply merge-with-meta (pmap (fn [add-fn] (add-fn middle-msk x))
+              added-msk (apply merge-with-meta (pmap (fn [add-fn] (add-fn msk sk-key x))
                                                      (vals (:add-fn-map meta-msk))))
               aliased-msk (add-aliases added-msk (:alias-map meta-msk))]
           (merge (merge-with-meta middle-msk added-msk) aliased-msk)))))
@@ -663,14 +671,78 @@
         (recur (rest current-xs)
                (add-multi-num current-msk sk-key (first current-xs)))))))
 
+(defn add-co-multi-num
+  ([msk] msk)
+  ([msk & key-xs]
+    (let [meta-msk (meta msk)
+          middle-msk (loop [current-key-xs key-xs
+                            current-msk msk]
+                       (if (empty? current-key-xs) current-msk
+                         (let [sk-key (first current-key-xs)
+                               x (first (rest current-key-xs))]
+                           (recur (rest (rest current-key-xs))
+                                  (add-multi-num current-msk sk-key x)))))
+          _ (println "mid" middle-msk (meta middle-msk))
+          added-msk (apply merge-with-meta (pmap (fn [add-co-fn] (apply add-co-fn (cons msk (cons middle-msk key-xs))))
+                                                 (vals (:add-co-fn-map meta-msk))))
+          aliased-msk (add-aliases added-msk (:alias-map meta-msk))]
+      (merge (merge-with-meta middle-msk added-msk) aliased-msk))))
+
+(defn track-multi-stat [msk sk-key track-fn & track-args]
+  (let [meta-msk (meta msk)
+        prev-sk (get-in meta-msk [:sub-sk-map sk-key])
+        new-sk (apply track-fn (cons prev-sk track-args))
+        new-sub-sk-map (assoc (get meta-msk :sub-sk-map) sk-key new-sk)
+        new-msk-meta (assoc meta-msk :sub-sk-map new-sub-sk-map)]
+    (with-meta msk new-msk-meta)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Multi Stats
+;;
 (defn track-multi-count [msk]
-  (let [add-fn (fn [prev-msk x]
+  (let [add-fn (fn [prev-msk sk-key x]
                  { :mcount (inc (:mcount prev-msk)) })]
     (track-stat msk :mcount add-fn 0)))
+
+(defn track-multi-co [msk sk-key1 sk-key2 min-x max-x num-buckets]
+  (let [dep-msk (track-multi-stat msk sk-key1 track-histogram min-x max-x num-buckets)
+        dep-msk (track-multi-stat msk sk-key2 track-histogram min-x max-x num-buckets)
+        add-co-fn (fn [prev-msk middle-msk & key-xs]
+                    (let [key-xs-hash-map (apply hash-map key-xs)
+                          match-x1 (get key-xs-hash-map sk-key1)
+                          match-x2 (get key-xs-hash-map sk-key2)]
+                      (if (not (and match-x1 match-x2)) prev-msk
+                        (let [stat1 (get-changed-range-count-keys (meta-get-in prev-msk :sub-sk-map sk-key1)
+                                                                  (meta-get-in middle-msk :sub-sk-map sk-key1))
+                              stat2 (get-changed-range-count-keys (meta-get-in prev-msk :sub-sk-map sk-key2)
+                                                                   (meta-get-in middle-msk :sub-sk-map sk-key2))
+                              co-key [stat1 stat2]
+                              prev-co (get msk :co)]
+                          (assoc prev-co co-key (inc (or (get prev-co co-key) 0)))))))]
+    (track-stat msk :co add-co-fn {} :add-co-fn-map)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Online Mutual Information
 ;;
+(defn track-mutual-information [msk sk-key1 sk-key2]
+  (let [stat [:mutinf sk-key1 sk-key2]
+        add-fn (fn [prev-msk sk-key x]
+                 (if (not (contains? (list sk-key1 sk-key2) sk-key)) prev-msk
+                   (if (nil? (get-in prev-msk [stat :prev-sk-key]))
+                     { :mutinf nil :prev-sk-key sk-key :prev-x x :co-map nil }
+                     (cond
+                       (= sk-key sk-key1)
+                       (let [x1 x
+                             x2 (get-in prev-msk [stat :prev-x])]
+                         12345)
+                       :else
+                       (let [x1 (get-in prev-msk [stat :prev-x])
+                             x2 x]
+                         12345)
+                       ))))]
+    (track-stat msk stat add-fn
+                { :mutinf nil :prev-sk-key nil :prev-x nil :co-map nil })))
+        
 (defn add-mutual-information-nums
   ([mi-map] mi-map)
   ([mi-map x1 x2]
@@ -742,6 +814,7 @@
     track-mean
     track-sum
     track-min-max
+    track-last
     track-count))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
