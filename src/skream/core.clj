@@ -632,7 +632,7 @@
   (alias-stat (track-quantile-ish sk 0.5) :median [:quantile 0.5]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Multi Support (portfolio of Skreams)
+;; Multi Support (bundle of Skreams)
 ;;
 (defn create-multi-skream [] {})
 
@@ -707,6 +707,19 @@
                  { :mcount (inc (:mcount prev-msk)) })]
     (track-stat msk :mcount add-fn 0)))
 
+(defn get-new-co-histogram [prev-msk middle-msk sk-key1 sk-key2 co-hist-key hist-stat-prefix]
+  (let [prev-co-hist (get prev-msk co-hist-key)
+        prev-sk1 (meta-get-in prev-msk [:sub-sk-map sk-key1])
+        prev-sk2 (meta-get-in prev-msk [:sub-sk-map sk-key2])
+        middle-sk1 (meta-get-in middle-msk [:sub-sk-map sk-key1])
+        middle-sk2 (meta-get-in middle-msk [:sub-sk-map sk-key2])
+        stat1 (first (get-changed-range-count-keys prev-sk1 middle-sk1 hist-stat-prefix))
+        stat2 (first (get-changed-range-count-keys prev-sk2 middle-sk2 hist-stat-prefix))]
+    (if (or (nil? stat1) (nil? stat2)) prev-co-hist
+      (let [co-key [stat1 stat2]
+            prev-co-count (or (get prev-co-hist co-key) 0)]
+        (assoc prev-co-hist co-key (inc prev-co-count))))))
+  
 (defn track-multi-co-histogram-helper [msk sk-key1 sk-key2 co-hist-key hist-stat-prefix]
   (let [add-co-fn (fn [prev-msk middle-msk & key-xs]
                     (let [prev-co-hist (get prev-msk co-hist-key)
@@ -714,106 +727,69 @@
                           match-x1 (get key-xs-hash-map sk-key1)
                           match-x2 (get key-xs-hash-map sk-key2)]
                       (if (not (and match-x1 match-x2)) { co-hist-key prev-co-hist }
-                        (let [prev-sk1 (meta-get-in prev-msk [:sub-sk-map sk-key1])
-                              prev-sk2 (meta-get-in prev-msk [:sub-sk-map sk-key2])
-                              middle-sk1 (meta-get-in middle-msk [:sub-sk-map sk-key1])
-                              middle-sk2 (meta-get-in middle-msk [:sub-sk-map sk-key2])
-                              stat1 (first (get-changed-range-count-keys prev-sk1 middle-sk1 hist-stat-prefix))
-                              stat2 (first (get-changed-range-count-keys prev-sk2 middle-sk2 hist-stat-prefix))]
-                          (if (or (nil? stat1) (nil? stat2)) { co-hist-key prev-co-hist }
-                            (let [co-key [stat1 stat2]
-                                  prev-co-count (or (get prev-co-hist co-key) 0)
-                                  new-co-hist (assoc prev-co-hist co-key (inc prev-co-count))]
-                              { co-hist-key new-co-hist }))))))]
+                        { co-hist-key (get-new-co-histogram prev-msk middle-msk sk-key1 sk-key2 co-hist-key hist-stat-prefix) })))]
     (track-stat msk co-hist-key add-co-fn {} :add-co-fn-map)))
 
 (defn track-multi-co-histogram [msk sk-key1 sk-key2 min-x max-x num-buckets]
-  (let [dep-msk msk
+  (let [stat [:co-hist sk-key1 sk-key2]
+        dep-msk msk
         dep-msk (track-multi-stat dep-msk sk-key1 track-histogram min-x max-x num-buckets)
         dep-msk (track-multi-stat dep-msk sk-key2 track-histogram min-x max-x num-buckets)]
-    (track-multi-co-histogram-helper dep-msk sk-key1 sk-key2 :co-hist :range-count)))
+    (track-multi-co-histogram-helper dep-msk sk-key1 sk-key2 stat :range-count)))
 
 (defn track-multi-co-normal-histogram [msk sk-key1 sk-key2 num-buckets]
-  (let [dep-msk msk
+  (let [stat [:co-norm-hist sk-key1 sk-key2]
+        dep-msk msk
         dep-msk (track-multi-stat dep-msk sk-key1 track-normal-histogram num-buckets)
         dep-msk (track-multi-stat dep-msk sk-key2 track-normal-histogram num-buckets)]
-    (track-multi-co-histogram-helper dep-msk sk-key1 sk-key2 :co-norm-hist :normal-range-count)))
+    (track-multi-co-histogram-helper dep-msk sk-key1 sk-key2 stat :normal-range-count)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Online Mutual Information
+;; Multi Mutual Information
 ;;
-(defn track-mutual-information [msk sk-key1 sk-key2]
+(defn track-multi-mutual-information [msk sk-key1 sk-key2 min-x max-x num-buckets]
   (let [stat [:mutinf sk-key1 sk-key2]
-        add-fn (fn [prev-msk sk-key x]
-                 (if (not (contains? (list sk-key1 sk-key2) sk-key)) prev-msk
-                   (if (nil? (get-in prev-msk [stat :prev-sk-key]))
-                     { :mutinf nil :prev-sk-key sk-key :prev-x x :co-map nil }
-                     (cond
-                       (= sk-key sk-key1)
-                       (let [x1 x
-                             x2 (get-in prev-msk [stat :prev-x])]
-                         12345)
-                       :else
-                       (let [x1 (get-in prev-msk [stat :prev-x])
-                             x2 x]
-                         12345)
-                       ))))]
-    (track-stat msk stat add-fn
-                { :mutinf nil :prev-sk-key nil :prev-x nil :co-map nil })))
-        
-(defn add-mutual-information-nums
-  ([mi-map] mi-map)
-  ([mi-map x1 x2]
-    (let [sk1 (get mi-map :sk1) sk2 (get mi-map :sk2)
-          hist-stat-prefix1 (get mi-map :hist-stat-prefix1) hist-stat-prefix2 (get mi-map :hist-stat-prefix2)
-          co-map (or (get mi-map :co-map) {})
-          new-sk1 (add-num sk1 x1) new-sk2 (add-num sk2 x2)
-          sk1-range (first (get-changed-range-count-keys sk1 new-sk1 hist-stat-prefix1))
-          sk2-range (first (get-changed-range-count-keys sk2 new-sk2 hist-stat-prefix2))]
-      (merge mi-map
-             {
-              :sk1 new-sk1 :sk2 new-sk2
-              :co-map (if (not (and sk1-range sk2-range)) co-map
-                        (let [co-key [sk1-range sk2-range]
-                              prev-co-count (or (get co-map co-key) 0)]
-                          (assoc co-map co-key (inc prev-co-count))))
-             })))
-  ([mi-map x1 x2 & xs]
-    (loop [current-xs xs
-           current-mi-map (add-mutual-information-nums mi-map x1 x2)]
-      (if (empty? current-xs) current-mi-map
-        (recur (rest (rest current-xs))
-               (add-mutual-information-nums current-mi-map (first current-xs) (first (rest current-xs))))))))
-
-(defn get-mutual-information [mi-map]
-  (let [sk1 (get mi-map :sk1) sk2 (get mi-map :sk2)
-        hist-stat-prefix1 (get mi-map :hist-stat-prefix1) hist-stat-prefix2 (get mi-map :hist-stat-prefix2)
-        co-map (get mi-map :co-map)
-        co-map-count (apply + (vals co-map))]
-    (if (zero? co-map-count) 0
-      (let [range-count-keys1 (filter (fn [key] (range-count-key? key hist-stat-prefix1)) (keys sk1))
-            range-count-keys2 (filter (fn [key] (range-count-key? key hist-stat-prefix2)) (keys sk2))]
-        (loop [current-range-count-keys1 range-count-keys1
-               current-ent1 0]
-          (if (empty? current-range-count-keys1)
-            current-ent1
-            (let [current-ent-inc1
-                  (loop [current-range-count-keys2 range-count-keys2
-                         current-ent2 0]
-                    (if (empty? current-range-count-keys2)
-                      current-ent2
-                      (let [current-range-count-key1 (first current-range-count-keys1)
-                            current-range-count-key2 (first current-range-count-keys2)
-                            co-map-key [current-range-count-key1 current-range-count-key2]
-                            p1 (/ (get sk1 current-range-count-key1) (:count sk1))
-                            p2 (/ (get sk2 current-range-count-key2) (:count sk2))
-                            p12 (/ (or (get co-map co-map-key) 0) co-map-count)
-                            current-ent-inc2 (if (zero? p12) 0
-                                               (* p12 (get-logarithm-2 (/ p12 (* p1 p2)))))]
-                        (recur (rest current-range-count-keys2)
-                               (+ current-ent2 current-ent-inc2)))))]
-              (recur (rest current-range-count-keys1)
-                     (+ current-ent1 current-ent-inc1)))))))))
+        dep-msk msk
+        dep-msk (track-multi-co-histogram dep-msk sk-key1 sk-key2 min-x max-x num-buckets)
+        dep-msk (track-multi-stat dep-msk sk-key1 track-count)
+        dep-msk (track-multi-stat dep-msk sk-key2 track-count)
+        add-co-fn
+        (fn [prev-msk middle-msk & key-xs]
+          (let [prev-mi (get prev-msk stat)
+                prev-co-hist (get prev-msk [:co-hist sk-key1 sk-key2])
+                key-xs-hash-map (apply hash-map key-xs)
+                match-x1 (get key-xs-hash-map sk-key1)
+                match-x2 (get key-xs-hash-map sk-key2)]
+            (if (not (and match-x1 match-x2)) { stat prev-mi }
+              (let [new-co-hist
+                    (get-new-co-histogram prev-msk middle-msk sk-key1 sk-key2 [:co-hist sk-key1 sk-key2] :range-count)
+                    sk1 (meta-get-in middle-msk [:sub-sk-map sk-key1])
+                    sk2 (meta-get-in middle-msk [:sub-sk-map sk-key2])
+                    co-hist-count (apply + (vals new-co-hist))
+                    new-mi
+                    (let [range-count-keys1 (filter (fn [key] (range-count-key? key :range-count)) (keys sk1))
+                          range-count-keys2 (filter (fn [key] (range-count-key? key :range-count)) (keys sk2))]
+                      (loop [current-range-count-keys1 range-count-keys1
+                             current-ent1 0]
+                        (if (empty? current-range-count-keys1) current-ent1
+                          (let [current-ent-inc1
+                                (loop [current-range-count-keys2 range-count-keys2
+                                       current-ent2 0]
+                                  (if (empty? current-range-count-keys2) current-ent2
+                                    (let [current-range-count-key1 (first current-range-count-keys1)
+                                          current-range-count-key2 (first current-range-count-keys2)
+                                          co-hist-key [current-range-count-key1 current-range-count-key2]
+                                          p1 (/ (get sk1 current-range-count-key1) (:count sk1))
+                                          p2 (/ (get sk2 current-range-count-key2) (:count sk2))
+                                          p12 (/ (or (get new-co-hist co-hist-key) 0) co-hist-count)
+                                          current-ent-inc2 (if (zero? p12) 0
+                                                             (* p12 (get-logarithm-2 (/ p12 (* p1 p2)))))]
+                                      (recur (rest current-range-count-keys2)
+                                             (+ current-ent2 current-ent-inc2)))))]
+                            (recur (rest current-range-count-keys1)
+                                   (+ current-ent1 current-ent-inc1))))))]
+                { stat new-mi }))))]
+    (track-stat dep-msk stat add-co-fn nil :add-co-fn-map)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Default Stat Combinations
