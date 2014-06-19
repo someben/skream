@@ -1,4 +1,4 @@
-;
+ ;
 ; (C) Copyright 2014 Ben Gimpert (ben@somethingmodern.com)
 ;
 ; All rights reserved. This program and the accompanying materials
@@ -10,14 +10,6 @@
   (:use clojure.math.numeric-tower)
   (:import (java.security MessageDigest))
   (:gen-class))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Default Parameters
-;;
-(defn get-default-exponential-moving-average-alpha [] 0.125)
-(defn get-default-moving-average-window-size [] 10)
-(defn get-default-sketch-depth [] 256)  ; number of hashes
-(defn get-default-sketch-width [] 128)  ; number of buckets per hash
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Math Routines 
@@ -136,16 +128,19 @@
           meta-add-fn-map (assoc prev-meta-add-fn-map stat add-fn)]
       (vary-meta new-sk assoc add-fn-map-key meta-add-fn-map))))
 
-(defn alias-stat [sk target-stat src-stat]
+(defn alias-nested-stat [sk target-stat src-stats]
   (let [prev-meta-alias-map (:alias-map (meta sk))
-        meta-alias-map (assoc prev-meta-alias-map target-stat src-stat)]
+        meta-alias-map (assoc prev-meta-alias-map target-stat src-stats)]
     (vary-meta sk assoc :alias-map meta-alias-map)))
+  
+(defn alias-stat [sk target-stat src-stat]
+  (alias-nested-stat sk target-stat [src-stat]))
 
 (defn add-aliases [sk alias-map]
-  (apply merge (pmap (fn [alias-target]
-                       (let [alias-src (get alias-map alias-target)
-                             alias-src-val (get sk alias-src)]
-                         { alias-target alias-src-val }))
+  (apply merge (pmap (fn [alias-target-stat]
+                       (let [alias-src-stats (get alias-map alias-target-stat)
+                             alias-src-stats-val (get-in sk alias-src-stats)]
+                         { alias-target-stat alias-src-stats-val }))
                      (keys alias-map))))
 
 (defn add-num
@@ -321,7 +316,7 @@
 ;; Averages
 ;;
 (defn track-exponential-moving-average
-  ([sk] (track-exponential-moving-average sk (get-default-exponential-moving-average-alpha)))
+  ([sk] (track-exponential-moving-average sk 0.125))
   ([sk alpha]
     (let [stat [:ema alpha]
           dep-sk (-> sk track-count)
@@ -338,7 +333,7 @@
     new-win))
 
 (defn track-window
-  ([sk] (track-window sk (get-default-moving-average-window-size)))
+  ([sk] (track-window sk 10))
   ([sk n]
     (let [stat [:win n]
           add-fn (fn [prev-sk x]
@@ -346,7 +341,7 @@
       (track-stat sk stat add-fn []))))
 
 (defn track-moving-average
-  ([sk] (track-moving-average sk (get-default-moving-average-window-size)))
+  ([sk] (track-moving-average sk 10))
   ([sk n]
     (let [stat [:ma n]
           win-stat [:win n]
@@ -373,39 +368,43 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Membership Estimate
 ;;
-(defn track-member-ish? [sk b k]
-  (let [stat [:bloom b k]
-        b-mask (dec (get-power 2 b))
-        empty-sketch (create-sketch 1 k)
-        add-fn (fn [prev-sk x]
-                 (let [prev-sketch (get prev-sk stat)
-                       new-sketch (loop [i 0 current-sketch prev-sketch]
-                                    (if (>= i k) current-sketch
-                                      (let [x-hash (get-32bit-sha1-hash x i)
-                                            col-i (bit-and x-hash b-mask)]
-                                        (recur (inc i)
-                                               (modify-sketch current-sketch 0 i
-                                                              (fn [val] (bit-set val col-i)))))))]
-                   { stat new-sketch }))]
-    (track-stat sk stat add-fn empty-sketch)))
+(defn track-member-ish?
+  ([sk] (track-member-ish? sk 6 8))
+  ([sk b k]
+    (let [stat [:bloom b k]
+          b-mask (dec (get-power 2 b))
+          empty-sketch (create-sketch 1 k)
+          add-fn (fn [prev-sk x]
+                   (let [prev-sketch (get prev-sk stat)
+                         new-sketch (loop [i 0 current-sketch prev-sketch]
+                                      (if (>= i k) current-sketch
+                                        (let [x-hash (get-32bit-sha1-hash x i)
+                                              col-i (bit-and x-hash b-mask)]
+                                          (recur (inc i)
+                                                 (modify-sketch current-sketch 0 i
+                                                                (fn [val] (bit-set val col-i)))))))]
+                     { stat new-sketch }))]
+      (track-stat sk stat add-fn empty-sketch))))
 
-(defn member-ish? [sk b k x]
-  (let [stat [:bloom b k]
-        b-mask (dec (get-power 2 b))
-        sketch-row (nth (get sk stat) 0)]
-    (loop [i 0]
-      (if (>= i k) true
-        (let [x-hash (get-32bit-sha1-hash x i)
-              col-i (bit-and x-hash b-mask)]
-          (if (not (bit-test (nth sketch-row i) col-i))
-            false
-            (recur (inc i))))))))
+(defn member-ish?
+  ([sk x] (member-ish? sk 6 8 x))
+  ([sk b k x]
+    (let [stat [:bloom b k]
+          b-mask (dec (get-power 2 b))
+          sketch-row (nth (get sk stat) 0)]
+      (loop [i 0]
+        (if (>= i k) true
+          (let [x-hash (get-32bit-sha1-hash x i)
+                col-i (bit-and x-hash b-mask)]
+            (if (not (bit-test (nth sketch-row i) col-i))
+              false
+              (recur (inc i)))))))))
   
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Online Probability Distribution Estimates
 ;;
 (defn track-element-counts-ish
-  ([sk] (track-element-counts-ish sk (get-default-sketch-depth) (get-default-sketch-width)))
+  ([sk] (track-element-counts-ish sk 256 128))
   ([sk d w]
     (let [empty-sketch (create-sketch d w)
           add-fn (fn [prev-sk x]
@@ -420,17 +419,19 @@
                      { [:cm-sketch d w] new-sketch }))]
       (track-stat sk [:cm-sketch d w] add-fn empty-sketch))))
 
-(defn get-element-count-ish [sk d w x]
-  (let [sketch (get sk [:cm-sketch d w])]
-    (loop [current-row-i 0
-           current-min-count nil]
-      (if (>= current-row-i (dec d))
-        current-min-count
-        (let [col-i (mod (get-32bit-sha1-hash x current-row-i) (dec w))
-              row-col-val (nth (nth sketch current-row-i) col-i)]
-          (recur (inc current-row-i)
-                 (if (nil? current-min-count) row-col-val
-                   (min current-min-count row-col-val))))))))
+(defn get-element-count-ish
+  ([sk x] (get-element-count-ish sk 256 128 x))
+  ([sk d w x]
+    (let [sketch (get sk [:cm-sketch d w])]
+      (loop [current-row-i 0
+             current-min-count nil]
+        (if (>= current-row-i (dec d))
+          current-min-count
+          (let [col-i (mod (get-32bit-sha1-hash x current-row-i) (dec w))
+                row-col-val (nth (nth sketch current-row-i) col-i)]
+            (recur (inc current-row-i)
+                   (if (nil? current-min-count) row-col-val
+                     (min current-min-count row-col-val)))))))))
 
 (defn track-element-range-count [sk range-min range-max]
   (let [stat [:range-count range-min range-max]
@@ -537,7 +538,6 @@
 (defn track-quantile-ish [sk p]  ; http://www.cs.wustl.edu/~jain/papers/ftp/psqr.pdf & https://github.com/absmall/p2
   (let [marker-count 5
         quantile-stat [:quantile p]
-        quantile-marker-stat [:quantile-markers p]
         dep-sk (track-count (track-window sk marker-count))
         
         sign-fn (fn [x] (if (>= x 0) +1 -1))
@@ -566,10 +566,10 @@
                                        (if (>= i marker-count) res
                                          (recur (inc i)
                                                 (conj res (inc (* (dec marker-count) (nth init-dns i)))))))]
-                        { quantile-stat nil quantile-marker-stat { :qs sorted-new-win :ns init-ns :dns init-dns :nps init-nps } }))
+                        { quantile-stat { :quantile nil :qs sorted-new-win :ns init-ns :dns init-dns :nps init-nps } }))
         
         add-update-fn (fn [prev-sk x]
-                        (let [prev-sk-stat (get prev-sk quantile-marker-stat)
+                        (let [prev-sk-stat (get prev-sk quantile-stat)
                               qs (:qs prev-sk-stat)
                               ns (:ns prev-sk-stat)
                               dns (:dns prev-sk-stat)
@@ -618,18 +618,18 @@
                                                      (recur (inc i)
                                                             (if (< (abs (- (nth dns i) p)) (abs (- (nth dns closest-i) p)))
                                                               i closest-i)))))]
-                            { quantile-stat quantile quantile-marker-stat { :qs qs :ns ns :dns dns :nps nps } })))
+                            { quantile-stat { :quantile quantile :qs qs :ns ns :dns dns :nps nps } })))
 
         add-fn (fn [prev-sk x]
                  (let [new-count (inc (:count prev-sk))]
                    (cond
-                     (< new-count marker-count) { quantile-stat nil quantile-marker-stat nil }
+                     (< new-count marker-count) { quantile-stat { :quantile nil } }
                      (= new-count marker-count) (add-init-fn prev-sk x)
                      :else (add-update-fn prev-sk x))))]
-    (track-stat dep-sk quantile-marker-stat add-fn)))
+    (track-stat dep-sk quantile-stat add-fn)))
 
 (defn track-median-ish [sk]
-  (alias-stat (track-quantile-ish sk 0.5) :median [:quantile 0.5]))
+  (alias-nested-stat (track-quantile-ish sk 0.5) :median [[:quantile 0.5] :quantile]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Multi Support (bundle of Skreams)
