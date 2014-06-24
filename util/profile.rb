@@ -24,14 +24,18 @@ def each_random_number
 end
 
 def to_console(msg)
-  $stdout.puts "[#{Time.now}] #{msg}"
+  now_t = Time.now
+  $stdout.puts "[#{now_t} -- #{sprintf("%0.4f", now_t.to_f)}] #{msg}"
+  $stdout.flush
 end
 
+to_console "Starting exact, in-memory profile."
 xs = []
 each_random_number { |i, x| xs << x }
 actual_median = xs.sort[xs.length / 2]
 to_console "Median is #{actual_median} exactly."
 
+to_console "Starting PostgreSQL profile."
 conn = PG.connect(
   :host => "localhost", :port => 5432,
   :dbname => "skream", :user => "skream", :password => "skream")
@@ -77,6 +81,7 @@ conn.exec("SELECT MEDIAN(x) FROM xs;").each do |row|
   to_console "PostgreSQL estimate of #{median} (#{sprintf("%+0.4f", median_err * 100)}% error) median."
 end
 
+to_console "Starting Skream profile."
 IO.popen("lein run 2>&1", "w+") do |io|
   sk_header = io.gets
   sk_header =~ />>> SKREAM (\d+)/
