@@ -55,6 +55,15 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Utility Functions (e.g. hashing)
 ;;
+(defn get-pid []
+  (let [mx-name (.getName (java.lang.management.ManagementFactory/getRuntimeMXBean))
+        pid-s (first (clojure.string/split mx-name #"@"))]
+    (read-string pid-s)))
+  
+(defn println-stderr [& args]
+  (binding [*out* *err*]
+    (apply println args)))
+
 (defn meta-get-in
   ([m ks] (meta-get-in m ks nil))
   ([m ks not-found] (get-in (meta m) ks not-found)))
@@ -812,38 +821,28 @@
     track-count))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Execution Path
+;; REPL Execution Path
 ;;
-(defn run-performance-profile [sk num-fn n]
-  (let [msg-per-n (if (nil? n) 100 (int (/ n 100)))
-        is-msg-fn (fn [i] (zero? (mod i msg-per-n)))
-        t1 (get-time)
-        elapsed-msg-fn
-        (fn [current-sk i] (let [t2 (get-time)
-                                 elapsed-t (- t2 t1)]
-                             (if (not (zero? elapsed-t))
-                               (let [per-sec (float (/ i elapsed-t))
-                                     sk-len (count (with-out-str (pr current-sk)))]
-                                 (println "Added" i "numbers at" per-sec "/sec, structure is roughly" sk-len "bytes")))))
-        new-sk
-        (loop [i 1 current-sk sk]
-          (if (and n (> i n)) current-sk
-            (do
-              (if (is-msg-fn i) (elapsed-msg-fn current-sk i))
-              (recur (inc i)
-                     (add-num current-sk (num-fn))))))]
-    (if (not (is-msg-fn n)) (elapsed-msg-fn new-sk n))
-    new-sk))
-
-(defn run-default-performance-profile [n]
-  (let [sk (track-default (create-skream))]
-    (run-performance-profile sk (fn [] (inc (rand-int 20))) n)))
-
 (defn -main [& args]
-  (println "Skream Performance Profile")
-  (let [n (if (empty? args) nil
-            (let [n-arg (read-string (first args))]
-              (println "Profiling w/" n-arg "random numbers")
-              n-arg))]
-    (run-default-performance-profile n)
-    (System/exit 0)))
+  (def ^:dynamic *sk* (create-skream))
+  (println-stderr ">>> SKREAM" (get-pid))
+  (in-ns 'skream.core)
+  (loop [lines (repeatedly read-line)]
+    (let [s (first lines)]
+      (if (nil? s) nil
+        (let [expr (read-string s)]
+          (if (number? expr)
+            (do
+              (def ^:dynamic *sk* (add-num *sk* expr))
+              (println *sk*)
+              (recur (next lines)))
+            (let [new-sk (try (eval expr)
+                           (catch Exception ex
+                             (println-stderr ">>> ERROR" (.getMessage ex))
+                             nil))]
+              (if (not (nil? new-sk))
+                (do
+                  (def ^:dynamic *sk* new-sk)
+                  (println *sk*)))
+              (recur (next lines))))))))
+  (System/exit 0))

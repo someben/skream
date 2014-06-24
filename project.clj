@@ -7,7 +7,7 @@
                  [ring "1.2.2"]
                  [ring/ring-json "0.3.1"]
                  [compojure "1.1.8"]]
-  :javac-options ["-target" "1.6" "-source" "1.6" "-Xlint:-options"]
+  :javac-options ["-target" "1.6" "-source" "1.6" "-Xlint:-options", "-Xmx2g"]
   :aot [skream.core]
   :main skream.core)
 
