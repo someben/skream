@@ -3,6 +3,8 @@
 require 'rubygems'
 require 'pg'
 
+N = 1_000_000
+
 def get_memory_usage(pid)
   mem = 0
   smaps = `cat /proc/#{pid}/smaps`
@@ -14,8 +16,7 @@ def get_memory_usage(pid)
 end
 
 def each_random_number
-  n = 100_000
-  #n = 1_000
+  n = N
   n += 1 unless n.odd?
   rand_key = 12345
   srand(rand_key)
@@ -35,32 +36,33 @@ conn = PG.connect(
   :host => "localhost", :port => 5432,
   :dbname => "skream", :user => "skream", :password => "skream")
 
+# PostgreSQL median aggregate function from "https://wiki.postgresql.org/wiki/Aggregate_Median":
 sql = <<'EOF_SQL'
-DROP TABLE IF EXISTS xs;
-CREATE TABLE xs (x INTEGER);
-CREATE INDEX x_idx ON xs (x);
+  DROP TABLE IF EXISTS xs;
+  CREATE TABLE xs (x INTEGER);
+  CREATE INDEX x_idx ON xs (x);
 
-CREATE OR REPLACE FUNCTION _final_median(numeric[])
-   RETURNS numeric AS
-$$
-   SELECT AVG(val)
-   FROM (
-     SELECT val
-     FROM unnest($1) val
-     ORDER BY 1
-     LIMIT  2 - MOD(array_upper($1, 1), 2)
-     OFFSET CEIL(array_upper($1, 1) / 2.0) - 1
-   ) sub;
-$$
-LANGUAGE 'sql' IMMUTABLE;
+  CREATE OR REPLACE FUNCTION _final_median(numeric[])
+     RETURNS numeric AS
+  $$
+     SELECT AVG(val)
+     FROM (
+       SELECT val
+       FROM unnest($1) val
+       ORDER BY 1
+       LIMIT  2 - MOD(array_upper($1, 1), 2)
+       OFFSET CEIL(array_upper($1, 1) / 2.0) - 1
+     ) sub;
+  $$
+  LANGUAGE 'sql' IMMUTABLE;
 
-DROP AGGREGATE IF EXISTS median(numeric);
-CREATE AGGREGATE median(numeric) (
-  SFUNC=array_append,
-  STYPE=numeric[],
-  FINALFUNC=_final_median,
-  INITCOND='{}'
-);
+  DROP AGGREGATE IF EXISTS median(numeric);
+  CREATE AGGREGATE median(numeric) (
+    SFUNC=array_append,
+    STYPE=numeric[],
+    FINALFUNC=_final_median,
+    INITCOND='{}'
+  );
 EOF_SQL
 conn.exec(sql)
 
@@ -72,32 +74,31 @@ conn.exec("COMMIT;")
 conn.exec("SELECT MEDIAN(x) FROM xs;").each do |row|
   median = row["median"].to_f
   median_err = (median - actual_median) / actual_median
-  to_console "Estimate of #{median} (#{sprintf("%+0.4f", median_err * 100)}% error) median."
+  to_console "PostgreSQL estimate of #{median} (#{sprintf("%+0.4f", median_err * 100)}% error) median."
 end
-exit
 
-before_t = Time.now
-srand(rand_key)
 IO.popen("lein run 2>&1", "w+") do |io|
   sk_header = io.gets
   sk_header =~ />>> SKREAM (\d+)/
   io_pid = $1.to_i
   to_console "Running Skream process as #{io_pid} PID."
-
   io.puts "(track-default *sk*)"
-  sk = nil
-  each_random_number do |i, x|
+
+  sk_proc = Proc.new do |sk, i, x|
+    sk =~ /:median ([^,]+),/
+    median = $1.to_f
+    median_err = (median - actual_median) / actual_median
+    mem = get_memory_usage(io_pid)
+    to_console "After #{i+1} numbers, using #{sprintf("%0.2f", mem)} mB of memory, Skream estimate of #{median} (#{sprintf("%+0.4f", median_err * 100)}% error) median."
+  end
+
+  sk, i, x = nil, nil, nil
+  each_random_number do |sub_i, sub_x|
+    i, x = sub_i, sub_x
     io.puts x
     sk = io.gets
-    if ((i+1) % 2_500).zero?
-      sk =~ /:median ([^,]+),/
-      median = $1.to_f
-      median_err = (median - actual_median) / actual_median
-      mem = get_memory_usage(io_pid)
-      to_console "After #{i+1} numbers, using #{sprintf("%0.2f", mem)} mB of memory, estimate of #{median} (#{sprintf("%+0.4f", median_err * 100)}% error) median."
-    end
+    sk_proc.call(sk, i, x) if ((i+1) % 2_500).zero?
   end
-  after_t = Time.now
-  to_console "Skream took #{sprintf("%0.2f", (after_t - before_t).to_f)} sec time."
+  sk_proc.call(sk, i, x)
 end
 
