@@ -4,6 +4,39 @@ Skream
 ======
 Skream is a high-performance time-series library with memory-footprint guarantees. The name is short for "online SKetching and stREAMing," and is pronounced like "scream" in English. For scalability, Skream is written in Clojure and has zero side-effects. The library includes a simple RESTful web-service for clients.
 
+Artifacts
+=======
+
+`skream` artifacts are [released to Clojars](https://clojars.org/clj-time/clj-time).
+
+If you are using Maven, add the following repository definition to your `pom.xml`:
+
+``` xml
+<repository>
+  <id>clojars.org</id>
+  <url>http://clojars.org/repo</url>
+</repository>
+```
+
+The Most Recent Release
+=======
+
+With Leiningen:
+
+``` clj
+[skream "0.0.2"]
+```
+
+With Maven:
+
+``` xml
+<dependency>
+  <groupId>skream</groupId>
+  <artifactId>skream</artifactId>
+  <version>0.0.2</version>
+</dependency>
+```
+
 Features
 =======
 Skream views a time-series as a simple sequence of numbers. These numbers are read sequentially and in order, with minimal state maintained. These sequences can be sensor readings from an Internet -of- things project, or stock prices in an HFT strategy.
