@@ -7,7 +7,7 @@ Skream is a high-performance time-series library with memory-footprint guarantee
 Artifacts
 =======
 
-`skream` artifacts are [released to Clojars](https://clojars.org/clj-time/clj-time).
+`skream` artifacts are [released to Clojars](https://clojars.org/skream).
 
 If you are using Maven, add the following repository definition to your `pom.xml`:
 
