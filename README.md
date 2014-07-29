@@ -115,10 +115,6 @@ License
 =======
 Skream is released under the Eclipse Public License, so you can easily incorporate the library into your commercial or non-commercial projects.
 
-Version
-=======
-0.1 Alpha
-
 Architecture
 ============
 Skream is a [Leiningen](http://leiningen.org/) Clojure project with decent automated test coverage. The main data-structure are simple Clojure maps with sequential updates handled by functions in map metadata.
