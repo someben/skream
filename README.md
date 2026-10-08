@@ -4,6 +4,8 @@ Skream
 ======
 Skream is a high-performance time-series library with memory-footprint guarantees. The name is short for "online SKetching and stREAMing," and is pronounced like "scream" in English. For scalability, Skream is written in Clojure and has zero side-effects. The library includes a simple RESTful web-service for clients.
 
+Background, use cases and trade-offs: https://blog.someben.com/2026/10/sketch-stream/
+
 Artifacts
 =======
 
