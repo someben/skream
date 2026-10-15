@@ -1,5 +1,8 @@
-(defproject skream "0.0.1-SNAPSHOT"
+(defproject skream "0.0.3"
   :description "Skream: Sketching & Streaming Library"
+  :url "https://github.com/someben/skream"
+  :license {:name "Eclipse Public License - v 1.0"
+            :url "https://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [org.clojure/data.json "0.2.1"]
                  [org.clojure/math.numeric-tower "0.0.4"]
@@ -10,4 +13,3 @@
   :javac-options ["-target" "1.6" "-source" "1.6" "-Xlint:-options", "-Xmx2g"]
   :aot [skream.core]
   :main skream.core)
-

@@ -16,7 +16,7 @@ If you are using Maven, add the following repository definition to your `pom.xml
 ``` xml
 <repository>
   <id>clojars.org</id>
-  <url>http://clojars.org/repo</url>
+  <url>https://repo.clojars.org/</url>
 </repository>
 ```
 
@@ -26,7 +26,7 @@ The Most Recent Release
 With Leiningen:
 
 ``` clj
-[skream "0.0.2"]
+[skream "0.0.3"]
 ```
 
 With Maven:
@@ -35,7 +35,7 @@ With Maven:
 <dependency>
   <groupId>skream</groupId>
   <artifactId>skream</artifactId>
-  <version>0.0.2</version>
+  <version>0.0.3</version>
 </dependency>
 ```
 
@@ -58,7 +58,7 @@ What queries does a Skream currently support?
   - Approximate individual element counts (via __Count-Min sketches__)
   - Distinct element count (via __HyperLogLog sketches__)
   - Approximate __median__ (via [P2 algorithm](http://www.cs.wustl.edu/~jain/papers/ftp/psqr.pdf))
-  - Approximate __arbitrary quantiles__ (e.g. 25% "median")
+  - Approximate __arbitrary quantiles__ (e.g. the 10th or 90th percentile, P2 with five markers per quantile)
   - Approximate __mutual information__ between two Skreams (via histograms)
 
 All of these queries are supported with a fixed memory footprint, new numbers added sequentially or in an online sense. The exception is simple moving average queries, which require a window of recent numbers maintained as state.

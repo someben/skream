@@ -570,7 +570,7 @@
                       (let [new-win (conj (get prev-sk [:win marker-count]) x)
                             sorted-new-win (apply vector (sort compare new-win))
                             init-ns (apply vector (rest (take (inc marker-count) (range))))
-                            init-dns (apply vector (map (fn [init-dn] (/ init-dn (dec marker-count))) (take marker-count (range))))
+                            init-dns [0 (/ p 2) p (/ (+ 1 p) 2) 1]  ; desired marker positions for quantile p, not fixed quartiles
                             init-nps (loop [i 0 res []]
                                        (if (>= i marker-count) res
                                          (recur (inc i)
@@ -616,17 +616,13 @@
                                                       (< new-para-q (nth current-qs (inc i))))
                                                (recur (inc i)
                                                       { :qs (assoc current-qs i new-para-q) :ns (assoc current-ns i new-n) })
-                                               (let [new-lin-q (float (linear-fn ns qs i (sign-fn d)))]
+                                               (let [new-lin-q (float (linear-fn current-ns current-qs i (sign-fn d)))]
                                                  (recur (inc i)
                                                         { :qs (assoc current-qs i new-lin-q) :ns (assoc current-ns i new-n) }))))
                                            (recur (inc i)
                                                   { :qs current-qs :ns current-ns })))))
                                 qs (:qs b3) ns (:ns b3)
-                                quantile (nth qs (loop [i 2 closest-i 1]
-                                                   (if (>= i (dec marker-count)) closest-i
-                                                     (recur (inc i)
-                                                            (if (< (abs (- (nth dns i) p)) (abs (- (nth dns closest-i) p)))
-                                                              i closest-i)))))]
+                                quantile (nth qs 2)]  ; middle marker tracks p
                             { quantile-stat { :quantile quantile :qs qs :ns ns :dns dns :nps nps } })))
 
         add-fn (fn [prev-sk x]
